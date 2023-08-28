@@ -21,6 +21,15 @@ impl Database {
         Ok(db)
     }
 
+    #[cfg(test)]
+    async fn init_test(folder_path: String, id: String) -> Self {
+        let db = Self {
+            folder_path: format!("{}/{}", folder_path, id),
+        };
+        db.create_path_dirs(&db.folder_path).await.unwrap();
+        db
+    }
+
     pub async fn clear(&self) -> Result<(), DatabaseError> {
         tokio::fs::remove_dir_all(&self.folder_path)
             .await
@@ -54,7 +63,7 @@ impl Database {
             DatabaseError::IoError(e)
         })?;
 
-        info!("Document inserted with id: {}", id);
+        info!("Document inserted on {} with id: {}", collection, id);
 
         Ok(id)
     }
@@ -79,6 +88,7 @@ impl Database {
             }
         }
     }
+
     pub async fn find(
         &self,
         collection: String,
@@ -176,7 +186,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find() {
-        let db = Database::init("data_tests".to_string()).await.unwrap();
+        let db = Database::init_test("data_tests".to_string(), "test_find".to_string()).await;
         db.clear().await.unwrap();
 
         let documents = test_documents();
@@ -192,6 +202,34 @@ mod tests {
             .expect("Failed to find documents");
 
         assert_eq!(found_docs.len(), 2);
+
+        for doc in found_docs {
+            assert!(documents.contains(&doc));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_find_filtered() {
+        let db =
+            Database::init_test("data_tests".to_string(), "test_find_filtered".to_string()).await;
+        db.clear().await.unwrap();
+
+        let documents = test_documents();
+        for doc in documents.clone() {
+            db.insert_one("users".to_string(), doc)
+                .await
+                .expect("Failed to insert document");
+        }
+
+        let found_docs = db
+            .find(
+                "users".to_string(),
+                bson::doc! { "name": "John", "age": 25 },
+            )
+            .await
+            .expect("Failed to find documents");
+
+        assert_eq!(found_docs.len(), 1);
 
         for doc in found_docs {
             assert!(documents.contains(&doc));

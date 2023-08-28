@@ -47,5 +47,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(all.len(), documents.len());
 
+    let found_docs = database
+        .find("users".to_string(), bson::doc! { "name": "John" })
+        .await
+        .expect("Failed to find documents");
+
+    assert_eq!(found_docs.len(), 2);
+
     Ok(())
 }
