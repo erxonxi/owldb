@@ -5,3 +5,4 @@ target/
 # Data
 data/
 data_tests/
+data_bench/

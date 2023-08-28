@@ -1,7 +1,7 @@
 use env_logger::Builder;
 use log::LevelFilter;
 
-mod db;
+pub mod db;
 
 const DB_FOLDER: &str = "data";
 
