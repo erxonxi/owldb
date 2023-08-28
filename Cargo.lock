@@ -561,6 +561,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ab1bc2a289d34bd04a330323ac98a1b4bc82c9d9fcb1e66b63caa84da26b575"
 
 [[package]]
+name = "owldb"
+version = "0.1.0"
+dependencies = [
+ "bson",
+ "criterion",
+ "env_logger",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -736,17 +747,6 @@ name = "regex-syntax"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbb5fb1acd8a1a18b3dd5be62d25485eb770e05afb408a9627d14d451bae12da"
-
-[[package]]
-name = "rrpdb"
-version = "0.1.0"
-dependencies = [
- "bson",
- "criterion",
- "env_logger",
- "log",
- "tokio",
-]
 
 [[package]]
 name = "rustc-demangle"

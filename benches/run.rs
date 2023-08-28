@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use tokio;
 
-use rrpdb::db::Database;
+use owldb::db::Database;
 
 fn database_insert_one_benchmark(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();

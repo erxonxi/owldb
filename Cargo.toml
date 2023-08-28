@@ -1,10 +1,10 @@
 [package]
-name = "rrpdb"
+name = "owldb"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "rrpdb"
+name = "owldb"
 path = "src/lib.rs"
 
 [[bench]]
