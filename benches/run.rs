@@ -5,7 +5,7 @@ use owldb::db::Database;
 
 fn database_insert_one_benchmark(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let db = rt
+    let mut db = rt
         .block_on(Database::init("data_bench".to_string()))
         .unwrap();
 

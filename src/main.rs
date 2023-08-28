@@ -26,7 +26,7 @@ fn test_documents() -> Vec<bson::Document> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Builder::new().filter(None, LevelFilter::Info).init();
 
-    let database = db::Database::init(DB_FOLDER.to_string())
+    let mut database = db::Database::init(DB_FOLDER.to_string())
         .await
         .expect("Failed to initialize database");
 

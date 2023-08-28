@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use log::{error, info};
 
 #[derive(Debug)]
@@ -9,13 +11,18 @@ pub enum DatabaseError {
 
 pub struct Database {
     folder_path: String,
+    index: HashMap<String, HashMap<String, Vec<String>>>, // colección -> campo -> [IDs]
 }
 
 impl Database {
     pub async fn init(folder_path: String) -> Result<Self, DatabaseError> {
-        info!("Database initialized in folder: {}", folder_path);
+        info!(
+            "Successfully initialized database at directory: {}",
+            folder_path
+        );
 
-        let db = Self { folder_path };
+        let index = HashMap::new();
+        let db = Self { folder_path, index };
         db.create_path_dirs(&db.folder_path).await?;
 
         Ok(db)
@@ -25,6 +32,7 @@ impl Database {
     async fn init_test(folder_path: String, id: String) -> Self {
         let db = Self {
             folder_path: format!("{}/{}", folder_path, id),
+            index: HashMap::new(),
         };
         db.create_path_dirs(&db.folder_path).await.unwrap();
         db
@@ -34,7 +42,7 @@ impl Database {
         tokio::fs::remove_dir_all(&self.folder_path)
             .await
             .map_err(|e| {
-                error!("Failed to remove database folder: {}", e);
+                error!("Error removing database directory: {}", e);
                 DatabaseError::IoError(e)
             })?;
 
@@ -43,8 +51,20 @@ impl Database {
         Ok(())
     }
 
+    pub fn add_index(&mut self, collection: String, field: String) {
+        if let Some(field_index) = self.index.get_mut(&collection) {
+            if !field_index.contains_key(&field) {
+                field_index.insert(field, Vec::new());
+            }
+        } else {
+            let mut field_index = HashMap::new();
+            field_index.insert(field, Vec::new());
+            self.index.insert(collection, field_index);
+        }
+    }
+
     pub async fn insert_one(
-        &self,
+        &mut self,
         collection: String,
         doc: bson::Document,
     ) -> Result<String, DatabaseError> {
@@ -63,7 +83,20 @@ impl Database {
             DatabaseError::IoError(e)
         })?;
 
-        info!("Document inserted on '{}' with id: '{}'", collection, id);
+        if let Some(field_index) = self.index.get_mut(&collection) {
+            for (field, _) in doc.iter() {
+                if let Some(ids) = field_index.get_mut(field) {
+                    ids.push(id.clone());
+                } else {
+                    field_index.insert(field.clone(), vec![id.clone()]);
+                }
+            }
+        }
+
+        info!(
+            "Successfully inserted document into '{}' with ID: '{}'",
+            collection, id
+        );
 
         Ok(id)
     }
@@ -96,6 +129,34 @@ impl Database {
     ) -> Result<Vec<bson::Document>, DatabaseError> {
         let collection_path = self.get_collection_path(&collection);
         let mut results = Vec::new();
+
+        if let Some(field_index) = self.index.get(&collection) {
+            // Filtro los IDs que coinciden con la consulta.
+            let mut candidate_ids: Option<HashSet<String>> = None;
+
+            for (field, _) in query.iter() {
+                if let Some(ids) = field_index.get(field) {
+                    let ids_set: HashSet<String> = ids.clone().into_iter().collect();
+
+                    if let Some(existing_set) = candidate_ids.as_mut() {
+                        *existing_set = existing_set.intersection(&ids_set).cloned().collect();
+                    } else {
+                        candidate_ids = Some(ids_set);
+                    }
+                }
+            }
+
+            if let Some(ids) = candidate_ids {
+                for id in ids {
+                    let doc = self.find_one(collection.clone(), id).await?;
+                    if let Some(doc) = doc {
+                        results.push(doc);
+                    }
+                }
+            }
+
+            return Ok(results);
+        }
 
         let mut entries = tokio::fs::read_dir(collection_path).await.map_err(|e| {
             error!("Failed to read collection directory: {}", e);
@@ -132,10 +193,16 @@ impl Database {
 
         match tokio::fs::remove_file(&path).await {
             Ok(_) => {
-                info!("Document deleted on '{}' with id: '{}'", collection, id);
+                info!(
+                    "Successfully deleted document from '{}' with ID: '{}'",
+                    collection, id
+                );
                 Ok(None)
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                info!("Document not found in '{}' with ID: '{}'", collection, id);
+                Ok(None)
+            }
             Err(e) => {
                 error!("Failed to delete document: {}", e);
                 Err(DatabaseError::IoError(e))
@@ -176,7 +243,10 @@ impl Database {
                 }
                 let id = path.file_stem().unwrap().to_str().unwrap().to_string();
                 deleted_ids.push(id.clone());
-                info!("Document deleted from '{}' with id: '{}'", collection, id);
+                info!(
+                    "Successfully deleted document from '{}' with ID: '{}'",
+                    collection, id
+                );
             }
         }
 
@@ -205,7 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_insert_one() {
-        let db = Database::init("data_tests".to_string()).await.unwrap();
+        let mut db = Database::init("data_tests".to_string()).await.unwrap();
 
         let doc = bson::doc! {
             "name": "John",
@@ -219,7 +289,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_one() {
-        let db = Database::init("data_tests".to_string()).await.unwrap();
+        let mut db = Database::init("data_tests".to_string()).await.unwrap();
 
         let doc = bson::doc! {
             "name": "John",
@@ -246,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find() {
-        let db = Database::init_test("data_tests".to_string(), "test_find".to_string()).await;
+        let mut db = Database::init_test("data_tests".to_string(), "test_find".to_string()).await;
         db.clear().await.unwrap();
 
         let documents = test_documents();
@@ -270,7 +340,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_filtered() {
-        let db =
+        let mut db =
             Database::init_test("data_tests".to_string(), "test_find_filtered".to_string()).await;
         db.clear().await.unwrap();
 
@@ -298,7 +368,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_one() {
-        let db = Database::init_test("data_tests".to_string(), "test_delete_one".to_string()).await;
+        let mut db =
+            Database::init_test("data_tests".to_string(), "test_delete_one".to_string()).await;
 
         db.clear().await.unwrap();
 
@@ -326,7 +397,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete() {
-        let db = Database::init_test("data_tests".to_string(), "test_delete".to_string()).await;
+        let mut db = Database::init_test("data_tests".to_string(), "test_delete".to_string()).await;
 
         db.clear().await.unwrap();
 
