@@ -9,7 +9,7 @@ const DB_FOLDER: &str = "data";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Builder::new().filter(None, LevelFilter::Info).init();
 
-    let database = db::Database::create(DB_FOLDER.to_string());
+    let database = db::Database::init(DB_FOLDER.to_string()).await.unwrap();
 
     let doc = bson::doc! {
         "name": "John",
@@ -19,6 +19,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let res = database.insert_one("users".to_string(), doc).await;
 
     assert!(res.is_ok());
+
+    let id = res.unwrap();
+
+    let found_doc = database.find_one("users".to_string(), id.clone()).await;
+    let found_doc = found_doc.unwrap();
+    let found_doc = found_doc.unwrap();
+
+    println!("Found doc: {}", found_doc);
 
     Ok(())
 }

@@ -12,8 +12,13 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn create(folder_path: String) -> Self {
-        Self { folder_path }
+    pub async fn init(folder_path: String) -> Result<Self, DatabaseError> {
+        info!("Database initialized in folder: {}", folder_path);
+
+        let db = Self { folder_path };
+        db.create_path_dirs(&db.folder_path).await?;
+
+        Ok(db)
     }
 
     pub async fn insert_one(
@@ -29,12 +34,7 @@ impl Database {
         doc.to_writer(&mut buffer)
             .map_err(|e| DatabaseError::BsonSerError(e))?;
 
-        tokio::fs::create_dir_all(&collection_path)
-            .await
-            .map_err(|e| {
-                error!("Failed to create collection directory: {}", e);
-                DatabaseError::IoError(e)
-            })?;
+        self.create_path_dirs(&collection_path).await?;
 
         tokio::fs::write(&full_path, &buffer).await.map_err(|e| {
             error!("Failed to write document: {}", e);
@@ -74,6 +74,13 @@ impl Database {
     fn get_document_path(&self, collection: &String, id: &String) -> String {
         format!("{}/{}.bson", self.get_collection_path(collection), id)
     }
+
+    async fn create_path_dirs(&self, path: &String) -> Result<(), DatabaseError> {
+        tokio::fs::create_dir_all(path).await.map_err(|e| {
+            error!("Failed to create directory: {}", e);
+            DatabaseError::IoError(e)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -82,7 +89,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_insert_one() {
-        let db = Database::create("data_tests".to_string());
+        let db = Database::init("data_tests".to_string()).await.unwrap();
 
         let doc = bson::doc! {
             "name": "John",
@@ -96,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_one() {
-        let db = Database::create("data_tests".to_string());
+        let db = Database::init("data_tests".to_string()).await.unwrap();
 
         let doc = bson::doc! {
             "name": "John",
