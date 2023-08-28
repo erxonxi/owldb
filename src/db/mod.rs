@@ -21,6 +21,19 @@ impl Database {
         Ok(db)
     }
 
+    pub async fn clear(&self) -> Result<(), DatabaseError> {
+        tokio::fs::remove_dir_all(&self.folder_path)
+            .await
+            .map_err(|e| {
+                error!("Failed to remove database folder: {}", e);
+                DatabaseError::IoError(e)
+            })?;
+
+        self.create_path_dirs(&self.folder_path).await?;
+
+        Ok(())
+    }
+
     pub async fn insert_one(
         &self,
         collection: String,
@@ -65,6 +78,39 @@ impl Database {
                 Err(DatabaseError::IoError(e))
             }
         }
+    }
+    pub async fn find(
+        &self,
+        collection: String,
+        query: bson::Document,
+    ) -> Result<Vec<bson::Document>, DatabaseError> {
+        let collection_path = self.get_collection_path(&collection);
+        let mut results = Vec::new();
+
+        let mut entries = tokio::fs::read_dir(collection_path).await.map_err(|e| {
+            error!("Failed to read collection directory: {}", e);
+            DatabaseError::IoError(e)
+        })?;
+
+        while let Some(entry) = entries.next_entry().await.map_err(|e| {
+            error!("Failed to read next entry: {}", e);
+            DatabaseError::IoError(e)
+        })? {
+            let path = entry.path();
+            let buffer = tokio::fs::read(&path).await.map_err(|e| {
+                error!("Failed to read document: {}", e);
+                DatabaseError::IoError(e)
+            })?;
+
+            let doc = bson::Document::from_reader(&buffer[..])
+                .map_err(|e| DatabaseError::BsonDeError(e))?;
+
+            if query.iter().all(|(k, v)| doc.get(k) == Some(v)) {
+                results.push(doc);
+            }
+        }
+
+        Ok(results)
     }
 
     fn get_collection_path(&self, collection: &String) -> String {
@@ -126,5 +172,46 @@ mod tests {
         let found_doc = found_doc.unwrap();
 
         assert_eq!(found_doc, doc);
+    }
+
+    #[tokio::test]
+    async fn test_find() {
+        let db = Database::init("data_tests".to_string()).await.unwrap();
+        db.clear().await.unwrap();
+
+        let documents = test_documents();
+        for doc in documents.clone() {
+            db.insert_one("users".to_string(), doc)
+                .await
+                .expect("Failed to insert document");
+        }
+
+        let found_docs = db
+            .find("users".to_string(), bson::doc! { "name": "John" })
+            .await
+            .expect("Failed to find documents");
+
+        assert_eq!(found_docs.len(), 2);
+
+        for doc in found_docs {
+            assert!(documents.contains(&doc));
+        }
+    }
+
+    fn test_documents() -> Vec<bson::Document> {
+        vec![
+            bson::doc! {
+                "name": "John",
+                "age": 30
+            },
+            bson::doc! {
+                "name": "Jane",
+                "age": 25
+            },
+            bson::doc! {
+                "name": "John",
+                "age": 25
+            },
+        ]
     }
 }

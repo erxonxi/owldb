@@ -5,28 +5,47 @@ mod db;
 
 const DB_FOLDER: &str = "data";
 
+fn test_documents() -> Vec<bson::Document> {
+    vec![
+        bson::doc! {
+            "name": "John",
+            "age": 30
+        },
+        bson::doc! {
+            "name": "Jane",
+            "age": 25
+        },
+        bson::doc! {
+            "name": "John",
+            "age": 25
+        },
+    ]
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Builder::new().filter(None, LevelFilter::Info).init();
 
-    let database = db::Database::init(DB_FOLDER.to_string()).await.unwrap();
+    let database = db::Database::init(DB_FOLDER.to_string())
+        .await
+        .expect("Failed to initialize database");
 
-    let doc = bson::doc! {
-        "name": "John",
-        "age": 30
-    };
+    database.clear().await.expect("Failed to clear database");
 
-    let res = database.insert_one("users".to_string(), doc).await;
+    let documents = test_documents();
+    for doc in documents.clone() {
+        database
+            .insert_one("users".to_string(), doc)
+            .await
+            .expect("Failed to insert document");
+    }
 
-    assert!(res.is_ok());
+    let all = database
+        .find("users".to_string(), bson::doc! {})
+        .await
+        .expect("Failed to find all documents");
 
-    let id = res.unwrap();
-
-    let found_doc = database.find_one("users".to_string(), id.clone()).await;
-    let found_doc = found_doc.unwrap();
-    let found_doc = found_doc.unwrap();
-
-    println!("Found doc: {}", found_doc);
+    assert_eq!(all.len(), documents.len());
 
     Ok(())
 }
