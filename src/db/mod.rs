@@ -63,7 +63,7 @@ impl Database {
             DatabaseError::IoError(e)
         })?;
 
-        info!("Document inserted on {} with id: {}", collection, id);
+        info!("Document inserted on '{}' with id: '{}'", collection, id);
 
         Ok(id)
     }
@@ -121,6 +121,66 @@ impl Database {
         }
 
         Ok(results)
+    }
+
+    pub async fn delete_one(
+        &self,
+        collection: String,
+        id: String,
+    ) -> Result<Option<bson::Document>, DatabaseError> {
+        let path = self.get_document_path(&collection, &id);
+
+        match tokio::fs::remove_file(&path).await {
+            Ok(_) => {
+                info!("Document deleted on '{}' with id: '{}'", collection, id);
+                Ok(None)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => {
+                error!("Failed to delete document: {}", e);
+                Err(DatabaseError::IoError(e))
+            }
+        }
+    }
+
+    pub async fn delete(
+        &self,
+        collection: String,
+        query: bson::Document,
+    ) -> Result<Vec<String>, DatabaseError> {
+        let collection_path = self.get_collection_path(&collection);
+        let mut deleted_ids = Vec::new();
+
+        let mut entries = tokio::fs::read_dir(collection_path).await.map_err(|e| {
+            error!("Failed to read collection directory: {}", e);
+            DatabaseError::IoError(e)
+        })?;
+
+        while let Some(entry) = entries.next_entry().await.map_err(|e| {
+            error!("Failed to read next entry: {}", e);
+            DatabaseError::IoError(e)
+        })? {
+            let path = entry.path();
+            let buffer = tokio::fs::read(&path).await.map_err(|e| {
+                error!("Failed to read document: {}", e);
+                DatabaseError::IoError(e)
+            })?;
+
+            let doc = bson::Document::from_reader(&buffer[..])
+                .map_err(|e| DatabaseError::BsonDeError(e))?;
+
+            if query.iter().all(|(k, v)| doc.get(k) == Some(v)) {
+                if let Err(e) = tokio::fs::remove_file(&path).await {
+                    error!("Failed to delete document: {}", e);
+                    return Err(DatabaseError::IoError(e));
+                }
+                let id = path.file_stem().unwrap().to_str().unwrap().to_string();
+                deleted_ids.push(id.clone());
+                info!("Document deleted from '{}' with id: '{}'", collection, id);
+            }
+        }
+
+        Ok(deleted_ids)
     }
 
     fn get_collection_path(&self, collection: &String) -> String {
@@ -233,6 +293,65 @@ mod tests {
 
         for doc in found_docs {
             assert!(documents.contains(&doc));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_one() {
+        let db = Database::init_test("data_tests".to_string(), "test_delete_one".to_string()).await;
+
+        db.clear().await.unwrap();
+
+        let documents = test_documents();
+
+        let id = db
+            .insert_one("users".to_string(), documents[0].clone())
+            .await
+            .expect("Failed to insert document");
+
+        let deleted_doc = db
+            .delete_one("users".to_string(), id.clone())
+            .await
+            .expect("Failed to delete document");
+
+        assert!(deleted_doc.is_none());
+
+        let found_doc = db
+            .find_one("users".to_string(), id.clone())
+            .await
+            .expect("Failed to find document");
+
+        assert!(found_doc.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete() {
+        let db = Database::init_test("data_tests".to_string(), "test_delete".to_string()).await;
+
+        db.clear().await.unwrap();
+
+        let documents = test_documents();
+
+        for doc in documents.clone() {
+            db.insert_one("users".to_string(), doc)
+                .await
+                .expect("Failed to insert document");
+        }
+
+        let deleted_ids = db
+            .delete("users".to_string(), bson::doc! { "name": "John" })
+            .await
+            .expect("Failed to delete documents");
+
+        assert_eq!(deleted_ids.len(), 2);
+
+        for id in deleted_ids {
+            let found_doc = db
+                .find_one("users".to_string(), id.clone())
+                .await
+                .expect("Failed to find document");
+
+            assert!(found_doc.is_none());
         }
     }
 
