@@ -5,6 +5,17 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+  workflow_dispatch:
+    inputs:
+      runTests:
+        description: 'Run tests'
+        required: false
+        default: 'true'
+      runBenchmarks:
+        description: 'Run benchmarks'
+        required: false
+        default: 'false'
+
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,6 +41,9 @@ jobs:
       
     - name: Tests
       run: cargo test --verbose
+      if: github.event.inputs.runTests == 'true'
     
     - name: Benchmarks
       run: cargo bench --verbose
+      if: github.event.inputs.runBenchmarks == 'true'
+
