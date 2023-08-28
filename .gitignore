@@ -1,0 +1,7 @@
+
+# Rust
+target/
+
+# Data
+data/
+data_tests/

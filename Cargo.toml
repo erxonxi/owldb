@@ -1,0 +1,8 @@
+[package]
+name = "rrpdb"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bson = "2.6.1"
+tokio = { version = "1.32.0", features = ["full"] }
